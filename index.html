@@ -108,7 +108,9 @@ const VOTE = {
     "The Woke Agenda",
     "Woke Forever",
   ],
-  // Scoring: 1st = 1 point, 2nd = 1/2, 3rd = 1/3, and so on (Dowdall count). No cap on ranks.
+  // Points by rank (Formula 1 scale x4). Past the last entry, each rank is worth half the one above,
+  // so every rank counts and nothing is cut off.
+  points: [100, 72, 60, 48, 40, 32, 24, 16, 8, 4],
   open: true,          // set to false to close voting
   hideResults: true,   // hide the Results tab until open is false
 };
@@ -158,21 +160,21 @@ function voterId(name){
   return out.slice(0, 150);
 }
 
-/* ---------- Points tabulation (Dowdall) ---------- */
-// Rank k is worth 1/k. To avoid rounding, points are kept as integers scaled by L = lcm(1..N).
+/* ---------- Points tabulation (Formula 1 scale) ---------- */
 // Ties on points are broken by number of 1st-place votes, then 2nd-place, and so on.
-const gcd = (a, b) => b ? gcd(b, a % b) : a;
-const L = options.reduce((acc, _, i) => acc / gcd(acc, i + 1) * (i + 1), 1);
-const fmt = x => (x / L).toFixed(2);
+const PTS = [...VOTE.points];
+while (PTS.length < options.length) PTS.push(PTS[PTS.length - 1] / 2);
+const MAX = options.length;
+const fmt = x => String(+x.toFixed(3));
+const ptsText = `${VOTE.points.join(', ')}, then halving with each further rank`;
 const ordinal = i => (i + 1) + (['st','nd','rd'][i] || 'th');
 function tabulate(ballots){
-  const N = options.length;
-  const rows = Object.fromEntries(options.map(n => [n, { name:n, points:0, byRank:Array(N).fill(0) }]));
-  const valid = ballots.map(b => canon(b.ranking));
-  for (const r of valid) r.forEach((n, i) => { rows[n].points += L / (i + 1); rows[n].byRank[i]++; });
+  const rows = Object.fromEntries(options.map(n => [n, { name:n, points:0, byRank:Array(MAX).fill(0) }]));
+  const valid = ballots.map(b => canon(b.ranking).slice(0, MAX));
+  for (const r of valid) r.forEach((n, i) => { rows[n].points += PTS[i]; rows[n].byRank[i]++; });
   const cmp = (x, y) => {
     if (y.points !== x.points) return y.points - x.points;
-    for (let i = 0; i < N; i++) if (y.byRank[i] !== x.byRank[i]) return y.byRank[i] - x.byRank[i];
+    for (let i = 0; i < MAX; i++) if (y.byRank[i] !== x.byRank[i]) return y.byRank[i] - x.byRank[i];
     return 0;
   };
   const sorted = Object.values(rows).sort((x, y) => cmp(x, y) || x.name.localeCompare(y.name));
@@ -199,7 +201,7 @@ function renderVote(){
   const ranked = canon(draft.ranking);
   draft.ranking = ranked;
   const pool = displayOrder.filter(n => !ranked.includes(n));
-  const full = false;
+  const full = ranked.length >= MAX;
   v.innerHTML = `
     <div class="panel">
       <label for="voter">Your character name</label>
@@ -216,9 +218,9 @@ function renderVote(){
           <button class="ic" data-up="${i}" aria-label="Move up" ${i===0?'disabled':''}>↑</button>
           <button class="ic" data-down="${i}" aria-label="Move down" ${i===ranked.length-1?'disabled':''}>↓</button>
           <button class="ic" data-rm="${i}" aria-label="Remove">×</button></li>`).join('')}</ol>`
-        : `<p class="empty">Pick options from the list, first choice first. Rank as many as you like: 1st is worth 1 point, 2nd 1/2, 3rd 1/3, and so on.</p>`}
+        : `<p class="empty">Pick options from the list, first choice first, and rank as many as you like. Points by rank: ${ptsText}.</p>`}
       </div>
-      <div class="panel"><h2>Options</h2>
+      <div class="panel"><h2>Options</h2>${full ? `<p class="hint" style="margin:0 0 8px">You've ranked ${MAX}. Remove one to swap in another.</p>` : ''}
         ${pool.length ? `<ul class="pool">${pool.map((n,i) => `
           <li>${label(n)}<button class="ic" data-add="${options.indexOf(n)}" aria-label="Add ${esc(n)}" ${full ? 'disabled' : ''}>+</button></li>`).join('')}</ul>`
         : `<p class="empty">All options ranked.</p>`}
@@ -240,11 +242,11 @@ function renderVote(){
     if (!draft.voter.trim()) return;
     try {
       const s = await getDoc(doc(db, 'ballots', voterId(draft.voter)));
-      if (s.exists()){ draft.ranking = canon(s.data().ranking); draft.comment = s.data().comment || ''; renderVote(); msg('Loaded your saved ballot.', 'ok'); }
+      if (s.exists()){ draft.ranking = canon(s.data().ranking).slice(0, MAX); draft.comment = s.data().comment || ''; renderVote(); msg('Loaded your saved ballot.', 'ok'); }
       else msg('No saved ballot under that name.', 'err');
     } catch(e){ msg('Could not reach the vote database: ' + e.message, 'err'); }
   };
-  v.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { draft.ranking = canon(draft.ranking); draft.ranking.push(options[+b.dataset.add]); renderVote(); });
+  v.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { draft.ranking = canon(draft.ranking); if (draft.ranking.length < MAX) draft.ranking.push(options[+b.dataset.add]); renderVote(); });
   v.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { draft.ranking.splice(+b.dataset.rm,1); renderVote(); });
   v.querySelectorAll('[data-up]').forEach(b => b.onclick = () => { const i=+b.dataset.up; [draft.ranking[i-1],draft.ranking[i]]=[draft.ranking[i],draft.ranking[i-1]]; renderVote(); });
   v.querySelectorAll('[data-down]').forEach(b => b.onclick = () => { const i=+b.dataset.down; [draft.ranking[i+1],draft.ranking[i]]=[draft.ranking[i],draft.ranking[i+1]]; renderVote(); });
@@ -252,7 +254,7 @@ function renderVote(){
   $('#submit').onclick = async () => {
     $('#submit').disabled = true;
     try {
-      await setDoc(doc(db, 'ballots', voterId(draft.voter)), { voter: draft.voter.trim(), ranking: canon(draft.ranking), comment: draft.comment.trim(), at: serverTimestamp() });
+      await setDoc(doc(db, 'ballots', voterId(draft.voter)), { voter: draft.voter.trim(), ranking: canon(draft.ranking).slice(0, MAX), comment: draft.comment.trim(), at: serverTimestamp() });
       msg(`Ballot saved for ${draft.voter.trim()}.`, 'ok');
     } catch(e){
       msg(e.code === 'permission-denied' ? 'The vote database refused this ballot. Voting may have closed.' : 'Saving failed: ' + e.message, 'err');
@@ -283,7 +285,7 @@ async function renderResults(){
 
   v.innerHTML = `${verdict}
     <div class="panel"><h2>Points</h2>
-      <p class="hint" style="margin:0 0 12px">1st place = 1 point, 2nd = 1/2, 3rd = 1/3, and so on. Ties on points go to whoever has more 1st-place votes, then 2nd, and so on.</p>
+      <p class="hint" style="margin:0 0 12px">Points by rank: ${ptsText}. Ties on points go to whoever has more 1st-place votes, then 2nd, and so on.</p>
       ${res.sorted.map(r => `<div class="bar ${r.name === res.winner ? 'win' : ''}"><span class="nm" title="${esc(r.name)}">${esc(r.name)}</span>
         <div class="track"><div class="fill" style="width:${r.points / max * 100}%"></div></div>
         <span class="num">${fmt(r.points)}</span></div>`).join('')}
@@ -295,7 +297,7 @@ async function renderResults(){
     </div>
     <div class="panel"><h2>Ballots cast</h2>
       <table><tr><th>Voter</th><th>Ranking</th><th>Comment</th></tr>
-      ${ballots.sort((a,b)=>a.voter.localeCompare(b.voter)).map(b => `<tr><td>${esc(b.voter)}</td><td>${canon(b.ranking).map(esc).join(' › ')}</td><td>${esc(b.comment || '')}</td></tr>`).join('')}
+      ${ballots.sort((a,b)=>a.voter.localeCompare(b.voter)).map(b => `<tr><td>${esc(b.voter)}</td><td>${canon(b.ranking).slice(0, MAX).map(esc).join(' › ')}</td><td>${esc(b.comment || '')}</td></tr>`).join('')}
       </table>
     </div>
     <button class="btn ghost" id="refresh">Refresh</button>`;
