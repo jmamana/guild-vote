@@ -81,34 +81,27 @@ td,th{text-align:left;padding:4px 6px;border-bottom:1px solid var(--line)}
 const VOTE = {
   title: "Guild name vote",
   options: [
-    "Peon Liberation Front",
-    "Solidarity Forever",
+    "ACRAB",
     "All Clams Are Beautiful",
-    "Azeroth Workers' Party",
-    "People's Republic of Azeroth",
-    "Bread and Roses",
-    "Spice Bread and Roses",
+    "Azeroth International",
     "Bread and Peacebloom",
-    "Durotar Column",
+    "Bread and Roses",
     "By Any Votes Necessary",
-    "Woke Forever",
-    "Marx of the Wild",
-    "Night Witches",
-    "Lordaeron Century of Humiliation",
     "Central Committee",
-    "Red Scare",
+    "Durotar Column",
+    "Hamas Condoners",
+    "Leftist Infighting",
+    "Marx of the Wild",
+    "Meowists",
+    "Night Witches",
+    "Peon Liberation Front",
     "Red Menace",
     "Red Orchestra",
-    "ACRAB",
-    "Meowists",
-    "Azeroth International",
-    "George Floyd Hamas Bottom Surgery",
+    "Red Scare",
+    "Solidarity Forever",
+    "Spice Bread and Roses",
     "The Holy Family",
-    "Do You Condemn Hamas?",
-    "Do You Condemn Hummus?",
-    "Hamas Condoners",
-    "Vote Blue Elf No Matter Who"
-    
+    "Woke Forever",
   ],
   open: true,          // set to false to close voting
   hideResults: true,   // hide the Results tab until open is false
@@ -132,6 +125,9 @@ import { getFirestore, doc, getDoc, setDoc, getDocs, collection, serverTimestamp
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const options = [...new Set(VOTE.options.map(s => s.trim()).filter(Boolean))];
+// Shuffled once per page load so no option benefits from always being listed first.
+const displayOrder = [...options];
+for (let i = displayOrder.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [displayOrder[i], displayOrder[j]] = [displayOrder[j], displayOrder[i]]; }
 let tab = 'vote';
 let draft = { voter:'', ranking:[] };
 let db = null;
@@ -203,7 +199,7 @@ function renderVote(){
   if (!VOTE.open){ v.innerHTML = `<div class="panel"><p>Voting is closed. See the Results tab.</p></div>`; return; }
   const ranked = draft.ranking.filter(n => options.includes(n));
   draft.ranking = ranked;
-  const pool = options.filter(n => !ranked.includes(n));
+  const pool = displayOrder.filter(n => !ranked.includes(n));
   v.innerHTML = `
     <div class="panel">
       <label for="voter">Your character name</label>
