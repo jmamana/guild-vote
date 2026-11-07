@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guild name vote</title>
+<style>
+:root{
+  --bg:#e9ebe7; --panel:#f6f7f4; --ink:#1d2228; --muted:#5d6670; --line:#c9cec8;
+  --blue:#2f4a7a; --blue-soft:#d7deea; --gold:#a97c1f; --gold-soft:#efe2c2; --red:#9a3b32;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#1a1d21; --panel:#23272c; --ink:#e6e8e4; --muted:#9aa3ab; --line:#3a4047;
+    --blue:#8fa9d8; --blue-soft:#2c3a52; --gold:#d9b45e; --gold-soft:#4a3d1f; --red:#d98a80;
+    color-scheme: dark;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:720px;margin:0 auto;padding:24px 16px 48px}
+h1{font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-weight:600;font-size:32px;line-height:1.15;margin:0 0 4px}
+h2{font-family:"Iowan Old Style",Palatino,Georgia,serif;font-weight:600;font-size:20px;margin:0 0 12px}
+.sub{color:var(--muted);margin:0 0 20px}
+nav{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:20px}
+nav button{background:none;border:0;border-bottom:2px solid transparent;padding:8px 12px;font:inherit;color:var(--muted);cursor:pointer}
+nav button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--blue);font-weight:600}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:18px;margin-bottom:16px}
+label{display:block;font-weight:600;margin:0 0 6px}
+input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink);font:inherit}
+.btn{padding:8px 14px;border-radius:4px;border:1px solid var(--blue);background:var(--blue);color:var(--panel);font:inherit;font-weight:600;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--blue)}
+.btn:disabled{opacity:.5;cursor:default}
+button:focus-visible,input:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.hint{color:var(--muted);font-size:13px;margin:6px 0 0}
+.msg{margin-top:10px;font-size:14px}
+.msg.err{color:var(--red)} .msg.ok{color:var(--blue)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:560px){.cols{grid-template-columns:1fr}}
+ol.rank,ul.pool{list-style:none;margin:0;padding:0;min-height:44px}
+ol.rank li,ul.pool li{display:flex;align-items:center;gap:8px;padding:7px 8px;border:1px solid var(--line);border-radius:4px;margin-bottom:6px;background:var(--bg)}
+ol.rank li .pos{width:22px;font-weight:700;color:var(--blue);text-align:right}
+li .nm{flex:1}
+.ic{background:none;border:1px solid var(--line);border-radius:3px;color:var(--ink);width:28px;height:28px;cursor:pointer;font:inherit;line-height:1}
+.empty{color:var(--muted);font-style:italic;padding:8px 0}
+.round{margin-bottom:18px}
+.round h3{font-size:15px;margin:0 0 8px}
+.bar{display:grid;grid-template-columns:150px 1fr 44px;gap:8px;align-items:center;margin-bottom:5px;font-size:14px}
+@media (max-width:560px){.bar{grid-template-columns:100px 1fr 40px}}
+.track{position:relative;height:18px;background:var(--bg);border:1px solid var(--line);border-radius:2px}
+.fill{height:100%;background:var(--blue-soft);border-right:2px solid var(--blue)}
+.half{position:absolute;top:-3px;bottom:-3px;left:50%;border-left:1px dashed var(--muted)}
+.bar.out .nm{color:var(--red);text-decoration:line-through}
+.bar.win .fill{background:var(--gold-soft);border-right-color:var(--gold)}
+.bar.win .nm{font-weight:700}
+.nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.verdict{border-left:4px solid var(--gold);padding:10px 14px;background:var(--gold-soft);border-radius:0 4px 4px 0;margin-bottom:18px}
+.verdict strong{font-family:"Iowan Old Style",Palatino,Georgia,serif;font-size:22px;display:block}
+table{border-collapse:collapse;width:100%;font-size:14px}
+td,th{text-align:left;padding:4px 6px;border-bottom:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="title">Guild name vote</h1>
+  <p class="sub" id="subtitle">Loading…</p>
+  <nav role="tablist">
+    <button role="tab" data-tab="vote" aria-selected="true">Vote</button>
+    <button role="tab" data-tab="results" aria-selected="false">Results</button>
+  </nav>
+  <main id="view"></main>
+</div>
+
+<script type="module">
+/* =====================================================================
+   EDIT THIS SECTION
+   ===================================================================== */
+const VOTE = {
+  title: "Guild name vote",
+  options: [
+    "Option one",
+    "Option two",
+    "Option three",
+  ],
+  open: true,          // set to false to close voting
+  hideResults: true,   // hide the Results tab until open is false
+};
+
+// Paste the firebaseConfig object from the Firebase console here.
+const firebaseConfig = {
+  apiKey: "AIzaSyBdHWvpHkTLDDW0irAvhQc3CU-mUvv2ZYE",
+  authDomain: "guild-a8f35.firebaseapp.com",
+  projectId: "guild-a8f35",
+  storageBucket: "guild-a8f35.firebasestorage.app",
+  messagingSenderId: "567536380085",
+  appId: "1:567536380085:web:8888e61fe5785f3ab4f6fc",
+};
+/* ===================================================================== */
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc, getDocs, collection, serverTimestamp }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const options = [...new Set(VOTE.options.map(s => s.trim()).filter(Boolean))];
+let tab = 'vote';
+let draft = { voter:'', ranking:[] };
+let db = null;
+
+if (firebaseConfig.projectId === "PASTE_ME"){
+  $('#subtitle').textContent = "Not set up yet: paste your Firebase config into index.html.";
+} else {
+  db = getFirestore(initializeApp(firebaseConfig));
+}
+
+function voterId(name){
+  let out = '';
+  for (const ch of name.trim().toLowerCase()) out += /[a-z0-9]/.test(ch) ? ch : '_' + ch.codePointAt(0).toString(36);
+  return out.slice(0, 150);
+}
+
+/* ---------- Instant-runoff tabulation ---------- */
+function tabulate(ballots){
+  const valid = ballots.map(b => b.ranking.filter(n => options.includes(n)));
+  const continuing = new Set(options);
+  const rounds = [], notes = [];
+  let winner = null, tie = null;
+  while (continuing.size > 0){
+    const tally = {}; continuing.forEach(n => tally[n] = 0);
+    let exhausted = 0;
+    for (const r of valid){
+      const top = r.find(n => continuing.has(n));
+      if (top) tally[top]++; else exhausted++;
+    }
+    const active = valid.length - exhausted;
+    const round = { tally:{...tally}, exhausted, active, eliminated:[] };
+    rounds.push(round);
+    if (active === 0){ notes.push('No ballots rank any remaining option.'); break; }
+    const max = Math.max(...Object.values(tally));
+    if (max * 2 > active || continuing.size === 1){ winner = Object.keys(tally).find(n => tally[n] === max); break; }
+    const min = Math.min(...Object.values(tally));
+    let low = Object.keys(tally).filter(n => tally[n] === min);
+    if (low.length === continuing.size){ tie = low; notes.push('All remaining options are exactly tied.'); break; }
+    if (low.length > 1){
+      for (let i = rounds.length - 2; i >= 0 && low.length > 1; i--){
+        const t = rounds[i].tally;
+        const m = Math.min(...low.map(n => t[n] ?? 0));
+        low = low.filter(n => (t[n] ?? 0) === m);
+      }
+      if (low.length > 1){
+        low.sort((a,b) => b.localeCompare(a));
+        notes.push(`Round ${rounds.length}: tie for last among ${low.join(', ')} not settled by earlier rounds; eliminated ${low[0]} by alphabetical order. Settle this yourselves if it matters.`);
+      } else notes.push(`Round ${rounds.length}: tie for last broken by earlier-round counts.`);
+      low = [low[0]];
+    }
+    round.eliminated = low;
+    low.forEach(n => continuing.delete(n));
+  }
+  return { rounds, winner, tie, notes, total: valid.length };
+}
+
+/* ---------- Views ---------- */
+function renderHeader(){
+  $('#title').textContent = VOTE.title;
+  document.title = VOTE.title;
+  if (db) $('#subtitle').textContent = `${options.length} options. Rank as many as you like. ` + (VOTE.open ? 'Voting is open.' : 'Voting is closed.');
+  document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === tab));
+}
+function msg(t, kind){ const m = $('#msg'); if (m){ m.textContent = t; m.className = 'msg ' + kind; } }
+
+function renderVote(){
+  const v = $('#view');
+  if (!db){ v.innerHTML = ''; return; }
+  if (!VOTE.open){ v.innerHTML = `<div class="panel"><p>Voting is closed. See the Results tab.</p></div>`; return; }
+  const ranked = draft.ranking.filter(n => options.includes(n));
+  draft.ranking = ranked;
+  const pool = options.filter(n => !ranked.includes(n));
+  v.innerHTML = `
+    <div class="panel">
+      <label for="voter">Your character name</label>
+      <div class="row">
+        <input type="text" id="voter" value="${esc(draft.voter)}" maxlength="40" style="flex:1;min-width:180px">
+        <button class="btn ghost" id="loadMine">Load my ballot</button>
+      </div>
+      <p class="hint">One ballot per name. Submitting again replaces your earlier ballot.</p>
+    </div>
+    <div class="cols">
+      <div class="panel"><h2>Your ranking</h2>
+        ${ranked.length ? `<ol class="rank">${ranked.map((n,i) => `
+          <li><span class="pos">${i+1}</span><span class="nm">${esc(n)}</span>
+          <button class="ic" data-up="${i}" aria-label="Move up" ${i===0?'disabled':''}>↑</button>
+          <button class="ic" data-down="${i}" aria-label="Move down" ${i===ranked.length-1?'disabled':''}>↓</button>
+          <button class="ic" data-rm="${i}" aria-label="Remove">×</button></li>`).join('')}</ol>`
+        : `<p class="empty">Pick options from the list to rank them, first choice first.</p>`}
+      </div>
+      <div class="panel"><h2>Options</h2>
+        ${pool.length ? `<ul class="pool">${pool.map((n,i) => `
+          <li><span class="nm">${esc(n)}</span><button class="ic" data-add="${options.indexOf(n)}" aria-label="Add ${esc(n)}">+</button></li>`).join('')}</ul>`
+        : `<p class="empty">All options ranked.</p>`}
+      </div>
+    </div>
+    <div class="row">
+      <button class="btn" id="submit" ${ranked.length && draft.voter.trim() ? '' : 'disabled'}>Submit ballot</button>
+      <button class="btn ghost" id="clear">Clear ranking</button>
+    </div>
+    <div class="msg" id="msg"></div>`;
+
+  $('#voter').addEventListener('input', e => { draft.voter = e.target.value; $('#submit').disabled = !(draft.ranking.length && draft.voter.trim()); });
+  $('#loadMine').onclick = async () => {
+    if (!draft.voter.trim()) return;
+    try {
+      const s = await getDoc(doc(db, 'ballots', voterId(draft.voter)));
+      if (s.exists()){ draft.ranking = s.data().ranking; renderVote(); msg('Loaded your saved ballot.', 'ok'); }
+      else msg('No saved ballot under that name.', 'err');
+    } catch(e){ msg('Could not reach the vote database: ' + e.message, 'err'); }
+  };
+  v.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { draft.ranking.push(options[+b.dataset.add]); renderVote(); });
+  v.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { draft.ranking.splice(+b.dataset.rm,1); renderVote(); });
+  v.querySelectorAll('[data-up]').forEach(b => b.onclick = () => { const i=+b.dataset.up; [draft.ranking[i-1],draft.ranking[i]]=[draft.ranking[i],draft.ranking[i-1]]; renderVote(); });
+  v.querySelectorAll('[data-down]').forEach(b => b.onclick = () => { const i=+b.dataset.down; [draft.ranking[i+1],draft.ranking[i]]=[draft.ranking[i],draft.ranking[i+1]]; renderVote(); });
+  $('#clear').onclick = () => { draft.ranking = []; renderVote(); };
+  $('#submit').onclick = async () => {
+    $('#submit').disabled = true;
+    try {
+      await setDoc(doc(db, 'ballots', voterId(draft.voter)), { voter: draft.voter.trim(), ranking: draft.ranking, at: serverTimestamp() });
+      msg(`Ballot saved for ${draft.voter.trim()}.`, 'ok');
+    } catch(e){
+      msg(e.code === 'permission-denied' ? 'The vote database refused this ballot. Voting may have closed.' : 'Saving failed: ' + e.message, 'err');
+      $('#submit').disabled = false;
+    }
+  };
+}
+
+async function renderResults(){
+  const v = $('#view');
+  if (!db){ v.innerHTML = ''; return; }
+  if (VOTE.hideResults && VOTE.open){ v.innerHTML = `<div class="panel"><p>Results are hidden until voting closes.</p></div>`; return; }
+  v.innerHTML = `<div class="panel"><p class="empty">Counting ballots…</p></div>`;
+  let ballots;
+  try {
+    const snap = await getDocs(collection(db, 'ballots'));
+    ballots = snap.docs.map(d => d.data()).filter(b => Array.isArray(b.ranking));
+  } catch(e){ v.innerHTML = `<div class="panel"><p class="msg err">Could not load ballots: ${esc(e.message)}</p></div>`; return; }
+  if (!ballots.length){ v.innerHTML = `<div class="panel"><p class="empty">No ballots yet.</p></div>`; return; }
+  const res = tabulate(ballots);
+  let verdict;
+  if (res.winner) verdict = `<div class="verdict">${VOTE.open ? 'Current leader' : 'Winner'}<strong>${esc(res.winner)}</strong>after ${res.rounds.length} round${res.rounds.length>1?'s':''}, ${res.total} ballot${res.total>1?'s':''}</div>`;
+  else if (res.tie) verdict = `<div class="verdict">Unresolved tie<strong>${res.tie.map(esc).join(' / ')}</strong></div>`;
+  else verdict = `<div class="verdict">No winner<strong>—</strong></div>`;
+
+  const roundsHtml = res.rounds.map((r, i) => {
+    const order = Object.keys(r.tally).sort((a,b) => r.tally[b] - r.tally[a]);
+    const last = i === res.rounds.length - 1;
+    return `<div class="round"><h3>Round ${i+1} <span class="hint">· ${r.active} active ballots${r.exhausted ? `, ${r.exhausted} exhausted` : ''}</span></h3>
+      ${order.map(n => {
+        const pct = r.active ? r.tally[n] / r.active * 100 : 0;
+        const cls = r.eliminated.includes(n) ? 'out' : (last && n === res.winner ? 'win' : '');
+        return `<div class="bar ${cls}"><span class="nm" title="${esc(n)}">${esc(n)}</span>
+          <div class="track"><div class="fill" style="width:${pct}%"></div><div class="half"></div></div>
+          <span class="num">${r.tally[n]}</span></div>`;
+      }).join('')}</div>`;
+  }).join('');
+
+  v.innerHTML = `${verdict}
+    <div class="panel"><h2>Rounds</h2>
+      <p class="hint" style="margin:0 0 12px">Dashed line marks a majority of active ballots. Each round, the last-place option is eliminated and its ballots move to their next ranked choice.</p>
+      ${roundsHtml}
+      ${res.notes.length ? `<p class="hint">${res.notes.map(esc).join('<br>')}</p>` : ''}
+    </div>
+    <div class="panel"><h2>Ballots cast</h2>
+      <table><tr><th>Voter</th><th>Ranking</th></tr>
+      ${ballots.sort((a,b)=>a.voter.localeCompare(b.voter)).map(b => `<tr><td>${esc(b.voter)}</td><td>${b.ranking.map(esc).join(' › ')}</td></tr>`).join('')}
+      </table>
+    </div>
+    <button class="btn ghost" id="refresh">Refresh</button>`;
+  $('#refresh').onclick = renderResults;
+}
+
+function render(){ renderHeader(); tab === 'vote' ? renderVote() : renderResults(); }
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
+render();
+</script>
+</body>
+</html>
