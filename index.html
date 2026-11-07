@@ -56,6 +56,9 @@ li .nm{flex:1}
 .bar.win .fill{background:var(--gold-soft);border-right-color:var(--gold)}
 .bar.win .nm{font-weight:700}
 .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.var{display:block;font-size:12px;color:var(--muted);white-space:normal}
+textarea{width:100%;min-height:90px;padding:8px 10px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink);font:inherit;resize:vertical}
+textarea:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 .num{text-align:right;font-variant-numeric:tabular-nums}
 .verdict{border-left:4px solid var(--gold);padding:10px 14px;background:var(--gold-soft);border-radius:0 4px 4px 0;margin-bottom:18px}
 .verdict strong{font-family:"Iowan Old Style",Palatino,Georgia,serif;font-size:22px;display:block}
@@ -84,8 +87,8 @@ const VOTE = {
     "ACRAB",
     "All Clams Are Beautiful",
     "Azeroth International",
-    "Bread and Peacebloom",
-    "Bread and Roses",
+    "Azeroth Workers Party",
+    { name: "Bread and Roses", variants: ["Bread and Peacebloom", "Spice Bread and Roses"] },
     "By Any Votes Necessary",
     "Central Committee",
     "Durotar Column",
@@ -99,7 +102,6 @@ const VOTE = {
     "Red Orchestra",
     "Red Scare",
     "Solidarity Forever",
-    "Spice Bread and Roses",
     "The Holy Family",
     "Woke Forever",
   ],
@@ -124,12 +126,20 @@ import { getFirestore, doc, getDoc, setDoc, getDocs, collection, serverTimestamp
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const options = [...new Set(VOTE.options.map(s => s.trim()).filter(Boolean))];
+// An option can be a plain name or { name, variants }. Variants are shown under the
+// name, and any old ballot that ranked a variant is counted for the main name.
+const optionDefs = VOTE.options.map(o => typeof o === 'string' ? { name: o, variants: [] } : { name: o.name, variants: o.variants || [] });
+const options = [...new Set(optionDefs.map(o => o.name.trim()).filter(Boolean))];
+const variantsOf = Object.fromEntries(optionDefs.map(o => [o.name.trim(), o.variants]));
+const alias = {};
+optionDefs.forEach(o => o.variants.forEach(v => alias[v] = o.name.trim()));
+const canon = r => [...new Set((r || []).map(n => alias[n] || n))].filter(n => options.includes(n));
+const label = n => `<span class="nm"><span>${esc(n)}</span>${variantsOf[n] && variantsOf[n].length ? `<span class="var">Variants: ${variantsOf[n].map(esc).join(', ')}</span>` : ''}</span>`;
 // Shuffled once per page load so no option benefits from always being listed first.
 const displayOrder = [...options];
 for (let i = displayOrder.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [displayOrder[i], displayOrder[j]] = [displayOrder[j], displayOrder[i]]; }
 let tab = 'vote';
-let draft = { voter:'', ranking:[] };
+let draft = { voter:'', ranking:[], comment:'' };
 let db = null;
 
 if (firebaseConfig.projectId === "PASTE_ME"){
@@ -146,7 +156,7 @@ function voterId(name){
 
 /* ---------- Instant-runoff tabulation ---------- */
 function tabulate(ballots){
-  const valid = ballots.map(b => b.ranking.filter(n => options.includes(n)));
+  const valid = ballots.map(b => canon(b.ranking));
   const continuing = new Set(options);
   const rounds = [], notes = [];
   let winner = null, tie = null;
@@ -197,7 +207,7 @@ function renderVote(){
   const v = $('#view');
   if (!db){ v.innerHTML = ''; return; }
   if (!VOTE.open){ v.innerHTML = `<div class="panel"><p>Voting is closed. See the Results tab.</p></div>`; return; }
-  const ranked = draft.ranking.filter(n => options.includes(n));
+  const ranked = canon(draft.ranking);
   draft.ranking = ranked;
   const pool = displayOrder.filter(n => !ranked.includes(n));
   v.innerHTML = `
@@ -212,7 +222,7 @@ function renderVote(){
     <div class="cols">
       <div class="panel"><h2>Your ranking</h2>
         ${ranked.length ? `<ol class="rank">${ranked.map((n,i) => `
-          <li><span class="pos">${i+1}</span><span class="nm">${esc(n)}</span>
+          <li><span class="pos">${i+1}</span>${label(n)}
           <button class="ic" data-up="${i}" aria-label="Move up" ${i===0?'disabled':''}>↑</button>
           <button class="ic" data-down="${i}" aria-label="Move down" ${i===ranked.length-1?'disabled':''}>↓</button>
           <button class="ic" data-rm="${i}" aria-label="Remove">×</button></li>`).join('')}</ol>`
@@ -220,9 +230,13 @@ function renderVote(){
       </div>
       <div class="panel"><h2>Options</h2>
         ${pool.length ? `<ul class="pool">${pool.map((n,i) => `
-          <li><span class="nm">${esc(n)}</span><button class="ic" data-add="${options.indexOf(n)}" aria-label="Add ${esc(n)}">+</button></li>`).join('')}</ul>`
+          <li>${label(n)}<button class="ic" data-add="${options.indexOf(n)}" aria-label="Add ${esc(n)}">+</button></li>`).join('')}</ul>`
         : `<p class="empty">All options ranked.</p>`}
       </div>
+    </div>
+    <div class="panel">
+      <label for="comment">Comments (optional)</label>
+      <textarea id="comment" maxlength="1000" placeholder="E.g. which variant you prefer, or anything else about your ranking.">${esc(draft.comment)}</textarea>
     </div>
     <div class="row">
       <button class="btn" id="submit" ${ranked.length && draft.voter.trim() ? '' : 'disabled'}>Submit ballot</button>
@@ -231,11 +245,12 @@ function renderVote(){
     <div class="msg" id="msg"></div>`;
 
   $('#voter').addEventListener('input', e => { draft.voter = e.target.value; $('#submit').disabled = !(draft.ranking.length && draft.voter.trim()); });
+  $('#comment').addEventListener('input', e => { draft.comment = e.target.value; });
   $('#loadMine').onclick = async () => {
     if (!draft.voter.trim()) return;
     try {
       const s = await getDoc(doc(db, 'ballots', voterId(draft.voter)));
-      if (s.exists()){ draft.ranking = s.data().ranking; renderVote(); msg('Loaded your saved ballot.', 'ok'); }
+      if (s.exists()){ draft.ranking = s.data().ranking; draft.comment = s.data().comment || ''; renderVote(); msg('Loaded your saved ballot.', 'ok'); }
       else msg('No saved ballot under that name.', 'err');
     } catch(e){ msg('Could not reach the vote database: ' + e.message, 'err'); }
   };
@@ -247,7 +262,7 @@ function renderVote(){
   $('#submit').onclick = async () => {
     $('#submit').disabled = true;
     try {
-      await setDoc(doc(db, 'ballots', voterId(draft.voter)), { voter: draft.voter.trim(), ranking: draft.ranking, at: serverTimestamp() });
+      await setDoc(doc(db, 'ballots', voterId(draft.voter)), { voter: draft.voter.trim(), ranking: draft.ranking, comment: draft.comment.trim(), at: serverTimestamp() });
       msg(`Ballot saved for ${draft.voter.trim()}.`, 'ok');
     } catch(e){
       msg(e.code === 'permission-denied' ? 'The vote database refused this ballot. Voting may have closed.' : 'Saving failed: ' + e.message, 'err');
@@ -293,8 +308,8 @@ async function renderResults(){
       ${res.notes.length ? `<p class="hint">${res.notes.map(esc).join('<br>')}</p>` : ''}
     </div>
     <div class="panel"><h2>Ballots cast</h2>
-      <table><tr><th>Voter</th><th>Ranking</th></tr>
-      ${ballots.sort((a,b)=>a.voter.localeCompare(b.voter)).map(b => `<tr><td>${esc(b.voter)}</td><td>${b.ranking.map(esc).join(' › ')}</td></tr>`).join('')}
+      <table><tr><th>Voter</th><th>Ranking</th><th>Comment</th></tr>
+      ${ballots.sort((a,b)=>a.voter.localeCompare(b.voter)).map(b => `<tr><td>${esc(b.voter)}</td><td>${canon(b.ranking).map(esc).join(' › ')}</td><td>${esc(b.comment || '')}</td></tr>`).join('')}
       </table>
     </div>
     <button class="btn ghost" id="refresh">Refresh</button>`;
