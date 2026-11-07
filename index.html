@@ -47,7 +47,7 @@ li .nm{flex:1}
 .empty{color:var(--muted);font-style:italic;padding:8px 0}
 .round{margin-bottom:18px}
 .round h3{font-size:15px;margin:0 0 8px}
-.bar{display:grid;grid-template-columns:150px 1fr 44px;gap:8px;align-items:center;margin-bottom:5px;font-size:14px}
+.bar{display:grid;grid-template-columns:150px 1fr 52px;gap:8px;align-items:center;margin-bottom:5px;font-size:14px}
 @media (max-width:560px){.bar{grid-template-columns:100px 1fr 40px}}
 .track{position:relative;height:18px;background:var(--bg);border:1px solid var(--line);border-radius:2px}
 .fill{height:100%;background:var(--blue-soft);border-right:2px solid var(--blue)}
@@ -86,30 +86,26 @@ const VOTE = {
   options: [
     "ACRAB",
     "All Clams Are Beautiful",
+    "Azeroth International",
     "Azeroth Workers Party",
     { name: "Bread and Roses", variants: ["Bread and Peacebloom", "Spice Bread and Roses"] },
     "By Any Votes Necessary",
     "Central Committee",
-    "Century of Humiliation",
-    "Clammunism Forever",
-    "Do You Condemn Hamas",
     "Durotar Column",
-    { name: "Hamas Bottom Surgery", variants: ["Antifa Bottom Surgery"] },
     "Hamas Condoners",
     "Leftist Infighting",
-    "Mamdanistan",
     "Marx of the Wild",
     "Meowists",
     "Night Witches",
     "Peon Liberation Front",
-    "Punch Left No Matter Who",
-    { name: "Red Scare", variants: ["Red Orchestra", "Red Menace"] },
-    "Sharia Now",
+    "Red Menace",
+    "Red Orchestra",
+    "Red Scare",
     "Solidarity Forever",
     "The Holy Family",
-    "The Woke Agenda",
     "Woke Forever",
   ],
+  // Scoring: 1st = 1 point, 2nd = 1/2, 3rd = 1/3, and so on (Dowdall count). No cap on ranks.
   open: true,          // set to false to close voting
   hideResults: true,   // hide the Results tab until open is false
 };
@@ -159,44 +155,29 @@ function voterId(name){
   return out.slice(0, 150);
 }
 
-/* ---------- Instant-runoff tabulation ---------- */
+/* ---------- Points tabulation (Dowdall) ---------- */
+// Rank k is worth 1/k. To avoid rounding, points are kept as integers scaled by L = lcm(1..N).
+// Ties on points are broken by number of 1st-place votes, then 2nd-place, and so on.
+const gcd = (a, b) => b ? gcd(b, a % b) : a;
+const L = options.reduce((acc, _, i) => acc / gcd(acc, i + 1) * (i + 1), 1);
+const fmt = x => (x / L).toFixed(2);
+const ordinal = i => (i + 1) + (['st','nd','rd'][i] || 'th');
 function tabulate(ballots){
+  const N = options.length;
+  const rows = Object.fromEntries(options.map(n => [n, { name:n, points:0, byRank:Array(N).fill(0) }]));
   const valid = ballots.map(b => canon(b.ranking));
-  const continuing = new Set(options);
-  const rounds = [], notes = [];
-  let winner = null, tie = null;
-  while (continuing.size > 0){
-    const tally = {}; continuing.forEach(n => tally[n] = 0);
-    let exhausted = 0;
-    for (const r of valid){
-      const top = r.find(n => continuing.has(n));
-      if (top) tally[top]++; else exhausted++;
-    }
-    const active = valid.length - exhausted;
-    const round = { tally:{...tally}, exhausted, active, eliminated:[] };
-    rounds.push(round);
-    if (active === 0){ notes.push('No ballots rank any remaining option.'); break; }
-    const max = Math.max(...Object.values(tally));
-    if (max * 2 > active || continuing.size === 1){ winner = Object.keys(tally).find(n => tally[n] === max); break; }
-    const min = Math.min(...Object.values(tally));
-    let low = Object.keys(tally).filter(n => tally[n] === min);
-    if (low.length === continuing.size){ tie = low; notes.push('All remaining options are exactly tied.'); break; }
-    if (low.length > 1){
-      for (let i = rounds.length - 2; i >= 0 && low.length > 1; i--){
-        const t = rounds[i].tally;
-        const m = Math.min(...low.map(n => t[n] ?? 0));
-        low = low.filter(n => (t[n] ?? 0) === m);
-      }
-      if (low.length > 1){
-        low.sort((a,b) => b.localeCompare(a));
-        notes.push(`Round ${rounds.length}: tie for last among ${low.join(', ')} not settled by earlier rounds; eliminated ${low[0]} by alphabetical order. Settle this yourselves if it matters.`);
-      } else notes.push(`Round ${rounds.length}: tie for last broken by earlier-round counts.`);
-      low = [low[0]];
-    }
-    round.eliminated = low;
-    low.forEach(n => continuing.delete(n));
-  }
-  return { rounds, winner, tie, notes, total: valid.length };
+  for (const r of valid) r.forEach((n, i) => { rows[n].points += L / (i + 1); rows[n].byRank[i]++; });
+  const cmp = (x, y) => {
+    if (y.points !== x.points) return y.points - x.points;
+    for (let i = 0; i < N; i++) if (y.byRank[i] !== x.byRank[i]) return y.byRank[i] - x.byRank[i];
+    return 0;
+  };
+  const sorted = Object.values(rows).sort((x, y) => cmp(x, y) || x.name.localeCompare(y.name));
+  const top = sorted[0];
+  const tiedTop = sorted.filter(r => cmp(r, top) === 0);
+  const pointsTied = sorted.filter(r => r.points === top.points).length > 1;
+  return { sorted, total: valid.length, tie: top.points > 0 && tiedTop.length > 1 ? tiedTop.map(r => r.name) : null,
+           winner: top.points > 0 && tiedTop.length === 1 ? top.name : null, brokeTie: pointsTied && tiedTop.length === 1 };
 }
 
 /* ---------- Views ---------- */
@@ -215,6 +196,7 @@ function renderVote(){
   const ranked = canon(draft.ranking);
   draft.ranking = ranked;
   const pool = displayOrder.filter(n => !ranked.includes(n));
+  const full = false;
   v.innerHTML = `
     <div class="panel">
       <label for="voter">Your character name</label>
@@ -231,11 +213,11 @@ function renderVote(){
           <button class="ic" data-up="${i}" aria-label="Move up" ${i===0?'disabled':''}>↑</button>
           <button class="ic" data-down="${i}" aria-label="Move down" ${i===ranked.length-1?'disabled':''}>↓</button>
           <button class="ic" data-rm="${i}" aria-label="Remove">×</button></li>`).join('')}</ol>`
-        : `<p class="empty">Pick options from the list to rank them, first choice first.</p>`}
+        : `<p class="empty">Pick options from the list, first choice first. Rank as many as you like: 1st is worth 1 point, 2nd 1/2, 3rd 1/3, and so on.</p>`}
       </div>
       <div class="panel"><h2>Options</h2>
         ${pool.length ? `<ul class="pool">${pool.map((n,i) => `
-          <li>${label(n)}<button class="ic" data-add="${options.indexOf(n)}" aria-label="Add ${esc(n)}">+</button></li>`).join('')}</ul>`
+          <li>${label(n)}<button class="ic" data-add="${options.indexOf(n)}" aria-label="Add ${esc(n)}" ${full ? 'disabled' : ''}>+</button></li>`).join('')}</ul>`
         : `<p class="empty">All options ranked.</p>`}
       </div>
     </div>
@@ -255,11 +237,11 @@ function renderVote(){
     if (!draft.voter.trim()) return;
     try {
       const s = await getDoc(doc(db, 'ballots', voterId(draft.voter)));
-      if (s.exists()){ draft.ranking = s.data().ranking; draft.comment = s.data().comment || ''; renderVote(); msg('Loaded your saved ballot.', 'ok'); }
+      if (s.exists()){ draft.ranking = canon(s.data().ranking); draft.comment = s.data().comment || ''; renderVote(); msg('Loaded your saved ballot.', 'ok'); }
       else msg('No saved ballot under that name.', 'err');
     } catch(e){ msg('Could not reach the vote database: ' + e.message, 'err'); }
   };
-  v.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { draft.ranking.push(options[+b.dataset.add]); renderVote(); });
+  v.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { draft.ranking = canon(draft.ranking); draft.ranking.push(options[+b.dataset.add]); renderVote(); });
   v.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { draft.ranking.splice(+b.dataset.rm,1); renderVote(); });
   v.querySelectorAll('[data-up]').forEach(b => b.onclick = () => { const i=+b.dataset.up; [draft.ranking[i-1],draft.ranking[i]]=[draft.ranking[i],draft.ranking[i-1]]; renderVote(); });
   v.querySelectorAll('[data-down]').forEach(b => b.onclick = () => { const i=+b.dataset.down; [draft.ranking[i+1],draft.ranking[i]]=[draft.ranking[i],draft.ranking[i+1]]; renderVote(); });
@@ -267,7 +249,7 @@ function renderVote(){
   $('#submit').onclick = async () => {
     $('#submit').disabled = true;
     try {
-      await setDoc(doc(db, 'ballots', voterId(draft.voter)), { voter: draft.voter.trim(), ranking: draft.ranking, comment: draft.comment.trim(), at: serverTimestamp() });
+      await setDoc(doc(db, 'ballots', voterId(draft.voter)), { voter: draft.voter.trim(), ranking: canon(draft.ranking), comment: draft.comment.trim(), at: serverTimestamp() });
       msg(`Ballot saved for ${draft.voter.trim()}.`, 'ok');
     } catch(e){
       msg(e.code === 'permission-denied' ? 'The vote database refused this ballot. Voting may have closed.' : 'Saving failed: ' + e.message, 'err');
@@ -288,29 +270,25 @@ async function renderResults(){
   } catch(e){ v.innerHTML = `<div class="panel"><p class="msg err">Could not load ballots: ${esc(e.message)}</p></div>`; return; }
   if (!ballots.length){ v.innerHTML = `<div class="panel"><p class="empty">No ballots yet.</p></div>`; return; }
   const res = tabulate(ballots);
+  const K = 3; // columns shown in the by-rank table; the rest are grouped
   let verdict;
-  if (res.winner) verdict = `<div class="verdict">${VOTE.open ? 'Current leader' : 'Winner'}<strong>${esc(res.winner)}</strong>after ${res.rounds.length} round${res.rounds.length>1?'s':''}, ${res.total} ballot${res.total>1?'s':''}</div>`;
-  else if (res.tie) verdict = `<div class="verdict">Unresolved tie<strong>${res.tie.map(esc).join(' / ')}</strong></div>`;
+  if (res.winner) verdict = `<div class="verdict">${VOTE.open ? 'Current leader' : 'Winner'}<strong>${esc(res.winner)}</strong>${fmt(res.sorted[0].points)} points from ${res.total} ballot${res.total>1?'s':''}${res.brokeTie ? ' (tied on points; ahead on higher-ranked votes)' : ''}</div>`;
+  else if (res.tie) verdict = `<div class="verdict">Exact tie<strong>${res.tie.map(esc).join(' / ')}</strong>Same points and same count at every rank. Settle it yourselves.</div>`;
   else verdict = `<div class="verdict">No winner<strong>—</strong></div>`;
-
-  const roundsHtml = res.rounds.map((r, i) => {
-    const order = Object.keys(r.tally).sort((a,b) => r.tally[b] - r.tally[a]);
-    const last = i === res.rounds.length - 1;
-    return `<div class="round"><h3>Round ${i+1} <span class="hint">· ${r.active} active ballots${r.exhausted ? `, ${r.exhausted} exhausted` : ''}</span></h3>
-      ${order.map(n => {
-        const pct = r.active ? r.tally[n] / r.active * 100 : 0;
-        const cls = r.eliminated.includes(n) ? 'out' : (last && n === res.winner ? 'win' : '');
-        return `<div class="bar ${cls}"><span class="nm" title="${esc(n)}">${esc(n)}</span>
-          <div class="track"><div class="fill" style="width:${pct}%"></div><div class="half"></div></div>
-          <span class="num">${r.tally[n]}</span></div>`;
-      }).join('')}</div>`;
-  }).join('');
+  const max = res.sorted[0].points || 1;
+  const rankHead = Array.from({length:K}, (_, i) => `<th class="num">${ordinal(i)}</th>`).join('') + `<th class="num">${ordinal(K)}+</th>`;
 
   v.innerHTML = `${verdict}
-    <div class="panel"><h2>Rounds</h2>
-      <p class="hint" style="margin:0 0 12px">Dashed line marks a majority of active ballots. Each round, the last-place option is eliminated and its ballots move to their next ranked choice.</p>
-      ${roundsHtml}
-      ${res.notes.length ? `<p class="hint">${res.notes.map(esc).join('<br>')}</p>` : ''}
+    <div class="panel"><h2>Points</h2>
+      <p class="hint" style="margin:0 0 12px">1st place = 1 point, 2nd = 1/2, 3rd = 1/3, and so on. Ties on points go to whoever has more 1st-place votes, then 2nd, and so on.</p>
+      ${res.sorted.map(r => `<div class="bar ${r.name === res.winner ? 'win' : ''}"><span class="nm" title="${esc(r.name)}">${esc(r.name)}</span>
+        <div class="track"><div class="fill" style="width:${r.points / max * 100}%"></div></div>
+        <span class="num">${fmt(r.points)}</span></div>`).join('')}
+    </div>
+    <div class="panel"><h2>Votes by rank</h2>
+      <table><tr><th>Option</th>${rankHead}<th class="num">Pts</th></tr>
+      ${res.sorted.map(r => `<tr><td>${esc(r.name)}</td>${r.byRank.slice(0, K).map(c => `<td class="num">${c || ''}</td>`).join('')}<td class="num">${r.byRank.slice(K).reduce((a,c)=>a+c,0) || ''}</td><td class="num">${fmt(r.points)}</td></tr>`).join('')}
+      </table>
     </div>
     <div class="panel"><h2>Ballots cast</h2>
       <table><tr><th>Voter</th><th>Ranking</th><th>Comment</th></tr>
